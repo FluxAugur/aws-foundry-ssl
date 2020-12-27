@@ -66,7 +66,6 @@ deploy:
 			OptionalFixedIP=False \
 			InstanceKey=$(KEYPAIR_NAME) \
 			InstanceType=t3.micro \
-			AMI="/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2" \
 			FullyQualifiedDomainName=$(DOMAIN) \
 			SubdomainName=foundry \
 			APIKey=$(SUB_DOMAIN_API_KEY) \

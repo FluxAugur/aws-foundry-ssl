@@ -7,7 +7,7 @@
 					"Label": {
 						"default": "Base Configuration"
 					},
-					"Parameters": ["FoundryDownloadLink", "InstanceKey", "InstanceType", "OptionalFixedIP", "S3BucketName", "UseExistingBucket", "TakeSnapshots", "SnapshotFrequency"]
+					"Parameters": ["FoundryDownloadLink", "InstanceKey", "InstanceType", "AMI", "OptionalFixedIP", "S3BucketName", "UseExistingBucket", "TakeSnapshots", "SnapshotFrequency"]
 				},
 				{
 					"Label": {
@@ -101,7 +101,8 @@
 		},
 		"AMI": {
 			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
-			"Description": "AWS managed ssm path for latest AMI"
+			"Description": "AWS managed ssm path for latest AMI",
+			"Default": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
 		},
 		"FullyQualifiedDomainName": {
 			"Description": "This is the name of the domain you have purchased. (e.g. mywebsitename.com).",
