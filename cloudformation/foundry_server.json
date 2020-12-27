@@ -7,7 +7,7 @@
 					"Label": {
 						"default": "Base Configuration"
 					},
-					"Parameters": ["AdminUserName", "AdminUserPW", "FoundryDownloadLink", "InstanceKey", "InstanceType", "OptionalFixedIP", "S3BucketName", "UseExistingBucket", "TakeSnapshots", "SnapshotFrequency"]
+					"Parameters": ["FoundryDownloadLink", "InstanceKey", "InstanceType", "OptionalFixedIP", "S3BucketName", "UseExistingBucket", "TakeSnapshots", "SnapshotFrequency"]
 				},
 				{
 					"Label": {
@@ -82,17 +82,6 @@
 			"Description": "An SSH keypair used to access your instance. This MUST be created manually.",
 			"ConstraintDescription": "This MUST be created manually https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#having-ec2-create-your-key-pair"
 		},
-		"AdminUserPW": {
-			"Type": "String",
-			"NoEcho": "true",
-			"Description": "Password for admin user. Have a minimum of 8 characters and a maximum of 128 characters include a minimum of three of the following mix of character types: uppercase, lowercase, numbers, and symbols.",
-			"ConstraintDescription": "Have a minimum of 8 characters and a maximum of 128 characters include a minimum of three of the following mix of character types: uppercase, lowercase, numbers, and symbols."
-		},
-		"AdminUserName": {
-			"Type": "String",
-			"Default": "AdminUser",
-			"Description": "Username to be used for the Admin user."
-		},
 		"InstanceType": {
 			"Description": "WebServer EC2 instance type",
 			"Type": "String",
@@ -109,6 +98,10 @@
 				"m4.4xlarge"
 			],
 			"ConstraintDescription": "Must be a valid EC2 instance type."
+		},
+		"AMI": {
+			"Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+			"Description": "AWS managed ssm path for latest AMI"
 		},
 		"FullyQualifiedDomainName": {
 			"Description": "This is the name of the domain you have purchased. (e.g. mywebsitename.com).",
@@ -164,37 +157,6 @@
 			"Type": "String"
 		}
 	},
-	"Mappings": {
-		"AMIRegionMap": {
-			"us-east-1": {
-				"AMILinux": "ami-0c94855ba95c71c99"
-			},
-			"us-east-2":{
-				"AMILinux": "ami-03657b56516ab7912"
-			},
-			"us-west-1": {
-				"AMILinux": "ami-0e4035ae3f70c400f"
-			},
-			"us-west-2": {
-				"AMILinux": "ami-01ce4793a2f45922e"
-			},
-			"ap-southeast-2": {
-				"AMILinux": "ami-0099823645f06b6a1"
-			},
-			"eu-north-1": {
-				"AMILinux": "ami-02511cb3673b49e04"
-			},
-			"eu-west-1": {
-				"AMILinux": "ami-08a2aed6e0a6f9c7d"
-			},
-			"eu-central-1": {
-				"AMILinux": "ami-08c148bb835696b45"
-			},
-			"sa-east-1": {
-				"AMILinux": "ami-02898a1921d38a50b"
-			}
-		}
-	},
 	"Conditions": {
 		"CreateSnapshots": {
 			"Fn::Equals": [{
@@ -246,20 +208,6 @@
 					"Ref": "SnapshotFrequency"
 				},
 				"Daily"
-			]
-		},
-		"WeeklyCheck": {
-			"Fn::Equals": [{
-					"Ref": "SnapshotFrequency"
-				},
-				"Weekly"
-			]
-		},
-		"TakeSnapshots": {
-			"Fn::Equals": [{
-					"Ref": "TakeSnapshots"
-				},
-				"True"
 			]
 		}
 	},
@@ -328,11 +276,11 @@
 			"Type": "AWS::Route53::RecordSet",
 			"Condition": "CreateRoute53",
 			"Properties": {
-				"Name": {"Fn::Join" : ["",[ { "Ref": "SubdomainName" }, ".", { "Ref": "FullyQualifiedDomainName" } ] ]},
+				"Name": { "Fn::Sub" : "${SubdomainName}.${FullyQualifiedDomainName}" },
 				"Type": "A",
-				"HostedZoneName": {"Fn::Join" : [ "", [{ "Ref": "FullyQualifiedDomainName" }, "."] ]},
+				"HostedZoneName": { "Fn::Sub": "${FullyQualifiedDomainName}." },
 				"ResourceRecords": [{ "Fn::GetAtt": ["FoundryServer", "PublicIp"]}],
-				"TTL": "60"
+				"TTL": 60
 			}
 		},
 		"Route53RSWeb": {
@@ -341,20 +289,20 @@
 			"Properties": {
 				"Name": { "Ref": "FullyQualifiedDomainName" },
 				"Type": "A",
-				"HostedZoneName": {"Fn::Join" : [ "", [{ "Ref": "FullyQualifiedDomainName" }, "."] ]},
+				"HostedZoneName": { "Fn::Sub": "${FullyQualifiedDomainName}." },
 				"ResourceRecords": [{ "Fn::GetAtt": ["FoundryServer", "PublicIp"]}],
-				"TTL": "60"
+				"TTL": 60
 			}
 		},
 		"Route53RSWebWWW": {
 			"Type": "AWS::Route53::RecordSet",
 			"Condition": "Route53WebServer",
 			"Properties": {
-				"Name": {"Fn::Join" : ["",[ "www.", { "Ref": "FullyQualifiedDomainName" } ] ]},
+				"Name": {"Fn::Sub": "www.${FullyQualifiedDomainName}" },
 				"Type": "CNAME",
-				"HostedZoneName": {"Fn::Join" : [ "", [{ "Ref": "FullyQualifiedDomainName" }, "."] ]},
+				"HostedZoneName": {"Fn::Sub": "${FullyQualifiedDomainName}." },
 				"ResourceRecords": [ { "Ref": "FullyQualifiedDomainName" } ],
-				"TTL": "60"
+				"TTL": 60
 			}
 		},
 		"FoundryBucket": {
@@ -369,7 +317,7 @@
 						"AllowedMethods": [
 							"GET", "POST", "HEAD"
 						],
-						"MaxAge": "3000",
+						"MaxAge": 3000,
 						"AllowedOrigins": [
 							"*"
 						]
@@ -390,40 +338,24 @@
 				},
 				"PolicyDocument": {
 					"Version": "2012-10-17",
-					"Statement": [{
-						"Sid": "PublicReadGetObject",
-						"Action": "s3:GetObject",
-						"Effect": "Allow",
-						"Resource": {
-							"Fn::Join": [
-								"",
-								[
-									"arn:aws:s3:::",
-									{
-										"Ref": "S3BucketName"
-									},
-									"/*"
-								]
-							]
-						},
-						"Principal": "*"
-					}]
-				}
-			}
-		},
-		"AdminUser": {
-			"Type": "AWS::IAM::User",
-			"Properties": {
-				"LoginProfile": {
-					"Password": {
-						"Ref": "AdminUserPW"
-					}
-				},
-				"ManagedPolicyArns": [
-					"arn:aws:iam::aws:policy/AdministratorAccess"
-				],
-				"UserName": {
-					"Ref": "AdminUserName"
+					"Statement": [
+						{
+							"Sid": "PublicReadGetObject",
+							"Effect": "Allow",
+							"Principal": "*",
+							"Action": "s3:GetObject",
+							"Resource": { "Fn::Sub": "arn:aws:s3:::${S3BucketName}/*" },
+							"Condition": {
+								"IpAddress": {
+									"aws:SourceIp": [
+										"172.31.16.0/20",
+										"172.31.0.0/20",
+										"172.31.32.0/20"
+									]
+								}
+							}
+						}
+					]
 				}
 			}
 		},
@@ -453,29 +385,9 @@
 									"s3:DeleteObject",
 									"s3:PutObjectAcl"
 								],
-								"Resource": [{
-										"Fn::Join": [
-											"",
-											[
-												"arn:aws:s3:::",
-												{
-													"Ref": "S3BucketName"
-												},
-												"/*"
-											]
-										]
-									},
-									{
-										"Fn::Join": [
-											"",
-											[
-												"arn:aws:s3:::",
-												{
-													"Ref": "S3BucketName"
-												}
-											]
-										]
-									}
+								"Resource": [
+									{ "Fn::Sub": "arn:aws:s3:::${S3BucketName}/*" },
+									{ "Fn::Sub": "arn:aws:s3:::${S3BucketName}" }
 								]
 							},
 							{
@@ -496,13 +408,7 @@
 					"Ref": "InstanceKey"
 				},
 				"ImageId": {
-					"Fn::FindInMap": [
-						"AMIRegionMap",
-						{
-							"Ref": "AWS::Region"
-						},
-						"AMILinux"
-					]
+					"Ref": "AMI"
 				},
 				"InstanceType": {
 					"Ref": "InstanceType"
@@ -579,81 +485,20 @@
 						]
 					}]
 				},
+				"ManagedPolicyArns": [
+					"arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+				],
 				"Policies": [{
-					"PolicyName": "EC2Manager",
+					"PolicyName": "EC2Permissions",
 					"PolicyDocument": {
 						"Version": "2012-10-17",
 						"Statement": [
 							{
-								"Sid": "VisualEditor0",
+								"Sid": "EC2Read",
 								"Effect": "Allow",
 								"Action": [
-									"ec2:CopySnapshot",
-									"ec2:DescribeInstances",
-									"ec2:ModifyVolumeAttribute",
-									"ec2:CreateKeyPair",
-									"route53:GetHostedZone",
-									"ec2:CreateImage",
-									"ec2:CopyImage",
-									"ec2:DescribeSnapshots",
-									"ec2:GetConsoleScreenshot",
-									"ec2:DescribeInternetGateways",
-									"ec2:DescribeVolumeStatus",
-									"ec2:ModifySnapshotAttribute",
-									"ec2:StartInstances",
-									"ec2:DescribeVolumes",
-									"route53:ListResourceRecordSets",
-									"ec2:DescribeAccountAttributes",
-									"route53:GetHostedZoneCount",
-									"route53:UpdateHostedZoneComment",
-									"ec2:ImportImage",
-									"ec2:DescribeKeyPairs",
-									"ec2:DescribeNetworkAcls",
-									"ec2:DescribeRouteTables",
-									"ec2:ModifyVolume",
-									"ec2:CancelExportTask",
-									"route53:CreateHostedZone",
-									"ec2:DisableFastSnapshotRestores",
-									"ec2:ImportKeyPair",
 									"ec2:CreateTags",
-									"route53:ChangeResourceRecordSets",
-									"ec2:RunInstances",
-									"ec2:StopInstances",
-									"ec2:DescribeVolumeAttribute",
-									"ec2:CreateVolume",
-									"ec2:DescribeImportSnapshotTasks",
-									"ec2:CreateSnapshots",
-									"ec2:DescribeImageAttribute",
-									"ec2:DescribeInstanceTypes",
-									"ec2:DescribeSubnets",
-									"ec2:ExportImage",
-									"ec2:AttachVolume",
-									"ec2:ImportVolume",
-									"ec2:DeleteSnapshot",
-									"ec2:DeleteTags",
-									"ec2:DescribeInstanceAttribute",
-									"ec2:DescribeRegions",
-									"ec2:CreateVpc",
-									"ec2:DescribeVpcAttribute",
-									"ec2:GetConsoleOutput",
-									"ec2:EnableFastSnapshotRestores",
-									"ec2:DescribeAvailabilityZones",
-									"ec2:CreateSecurityGroup",
-									"ec2:CreateSnapshot",
-									"route53:DeleteHostedZone",
-									"ec2:DescribeInstanceStatus",
-									"ec2:DescribeTags",
-									"ec2:ResetSnapshotAttribute",
-									"ec2:ImportSnapshot",
-									"route53:ListHostedZones",
-									"ec2:DescribeImportImageTasks",
-									"ec2:DescribeNatGateways",
-									"ec2:DescribeInstanceEventNotificationAttributes",
-									"ec2:DescribeSecurityGroups",
-									"ec2:DescribeImages",
-									"ec2:DescribeSecurityGroupReferences",
-									"ec2:DescribeVpcs",
-									"ec2:CancelImportTask"
+									"ec2:DescribeInstances"
 								],
 								"Resource": "*"
 							}
