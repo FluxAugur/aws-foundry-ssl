@@ -1,0 +1,528 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Automated process to setup foundry exactly as the following guides dictate
+  https://foundry-vtt-community.github.io/wiki/Self-Hosting-on-AWS/ and
+  https://foundryvtt.com/article/nginx/. It also allows for optional snap-shots.
+  Made by Lupert and Cat.
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Base Configuration
+        Parameters:
+          - FoundryDownloadLink
+          - InstanceKey
+          - InstanceType
+          - OptionalFixedIP
+          - S3BucketName
+          - UseExistingBucket
+          - TakeSnapshots
+          - SnapshotFrequency
+      - Label:
+          default: SSL Configuration
+        Parameters:
+          - FullyQualifiedDomainName
+          - SubdomainName
+          - DomainRegistrar
+          - WebServerBool
+          - Email
+      - Label:
+          default: 'GoDaddy, Google, and NameCheap'
+        Parameters:
+          - APIKey
+          - APISecret
+      - Label:
+          default: Google Web Server
+        Parameters:
+          - GoogleAPIKey
+          - GoogleAPISecret
+Parameters:
+  TakeSnapshots:
+    Description: >-
+      Select True or False for whether you want to take snapshots of your
+      instance. This is recommended but comes with a very minimal cost. This
+      will retain 5 snapshots by default https://aws.amazon.com/ebs/pricing/
+    Type: String
+    Default: 'False'
+    AllowedValues:
+      - 'True'
+      - 'False'
+  UseExistingBucket:
+    Description: >-
+      If you are not comfortable working with AWS, just leave this default. If
+      you already have a bucket setup to work with Foundry set this option to
+      True, and then enter the existing bucket's name as the value for parameter
+      S3BucketName. The bucket must already have the correct policy set for this
+      to work.
+    Type: String
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'False'
+  FoundryDownloadLink:
+    Description: >-
+      This will be your personal link to download Foundry. You can either use a
+      Patreon link, or a Google Drive link.
+    Type: String
+  S3BucketName:
+    Description: >-
+      Name for S3 bucket that will be created. This must be globally unique
+      across all of AWS, so be a little creative. Must be all lowercase letters
+      or numbers, no spaces, and no symbols expect dash (-).
+    ConstraintDescription: >-
+      This must be globally unique across all of AWS, so be a little creative.
+      Must be all lowercase letters or numbers, no spaces, and no symbols expect
+      dash (-).
+    Type: String
+    AllowedPattern: '^[a-z|0-9]+(-[a-z|0-9]+)*$'
+  SnapshotFrequency:
+    Description: >-
+      Decides how often you want to take snapshots. This value does not matter
+      if you select False for TakeSnapshots
+    Type: String
+    Default: Weekly
+    AllowedValues:
+      - Daily
+      - Weekly
+  OptionalFixedIP:
+    Description: >-
+      Allows you to have a dedicated public IP for your instance. This prevents
+      the IP from changing everytime you shutdown the instance. EIPs have a
+      conditional cost. If an EIP is in use, it is free. If the EIP is not in
+      use a minimal cost is applied.
+    Type: String
+    Default: 'False'
+    AllowedValues:
+      - 'True'
+      - 'False'
+  InstanceKey:
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Description: >-
+      An SSH keypair used to access your instance. This MUST be created
+      manually.
+    ConstraintDescription: >-
+      This MUST be created manually
+      https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html#having-ec2-create-your-key-pair
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+    ConstraintDescription: Must be a valid EC2 instance type.
+  AMI:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: AWS managed ssm path for latest AMI
+  FullyQualifiedDomainName:
+    Description: >-
+      This is the name of the domain you have purchased. (e.g.
+      mywebsitename.com).
+    Type: String
+    AllowedPattern: '^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z]{2,})+$'
+  SubdomainName:
+    Description: >-
+      Name for the final URL to access foundry. Must be all lowercase, no
+      letters, no spaces, and no symbols. (e.g. 'foundry' will become
+      'foundry.mywebsitename.com')
+    Type: String
+    Default: foundry
+    AllowedPattern: '^[a-z]+$'
+    ConstraintDescription: 'Must be all lowercase, no letters, no spaces, and no symbols.'
+  APIKey:
+    Description: >-
+      API Key from your domain registrar. If you are using Namecheap this will
+      just be the same value you entered for FullyQualifiedDomainName.
+    Type: String
+  APISecret:
+    Description: API Secret associated with the API Key above.
+    Type: String
+  Email:
+    Description: A valid email address is required for letsencrypt certs.
+    Type: String
+  DomainRegistrar:
+    Description: The domain registrar from which the domain was purchased from.
+    Type: String
+    AllowedValues:
+      - google
+      - godaddy
+      - namecheap
+      - amazon
+  WebServerBool:
+    Description: >-
+      Set this to true if you would like your instance to act as a web server
+      for your base domain as well as host Foundry. Refer to guide section for
+      additional DNS steps.
+    Type: String
+    AllowedValues:
+      - 'True'
+      - 'False'
+    Default: 'False'
+  GoogleAPIKey:
+    Description: >-
+      This only matters if WebServer is set to true, and DomainRegistrar is set
+      to google. If both of these conditions are not true ignore this parameter.
+      Key for fully qualified domain name dynamic DNS.
+    Default: 'null'
+    Type: String
+  GoogleAPISecret:
+    Description: >-
+      This only matters if WebServerBool is set to true, and DomainRegistrar is
+      set to google. If both of these conditions are not true ignore this
+      parameter. Secret for fully qualified domain name dynamic DNS.
+    Default: 'null'
+    Type: String
+Conditions:
+  CreateSnapshots: !Equals 
+    - !Ref TakeSnapshots
+    - 'True'
+  CreateRoute53: !Equals 
+    - !Ref DomainRegistrar
+    - amazon
+  CreateWebServer: !Equals 
+    - !Ref WebServerBool
+    - 'True'
+  Route53WebServer: !And 
+    - !Condition CreateRoute53
+    - !Condition CreateWebServer
+  NoExistingS3: !Equals 
+    - !Ref UseExistingBucket
+    - 'False'
+  CreateEIP: !Equals 
+    - !Ref OptionalFixedIP
+    - 'True'
+  DailyCheck: !Equals 
+    - !Ref SnapshotFrequency
+    - Daily
+Resources:
+  FoundryServerSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: '-'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 30000
+          CidrIp: 0.0.0.0/0
+  SecurityGroupIngressVoice:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 
+        - FoundryServerSG
+        - GroupId
+      CidrIp: 0.0.0.0/0
+      FromPort: 80
+      IpProtocol: tcp
+      ToPort: 80
+  SecurityGroupIngressVoiceRange:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 
+        - FoundryServerSG
+        - GroupId
+      CidrIp: 0.0.0.0/0
+      FromPort: 49152
+      IpProtocol: tcp
+      ToPort: 65535
+  SecurityGroupIngressHTTP:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 
+        - FoundryServerSG
+        - GroupId
+      CidrIp: 0.0.0.0/0
+      FromPort: 33478
+      IpProtocol: tcp
+      ToPort: 33478
+  SecurityGroupIngressHTTPS:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt 
+        - FoundryServerSG
+        - GroupId
+      CidrIp: 0.0.0.0/0
+      FromPort: 443
+      IpProtocol: tcp
+      ToPort: 443
+  Route53RSFoundry:
+    Type: 'AWS::Route53::RecordSet'
+    Condition: CreateRoute53
+    Properties:
+      Name: !Sub '${SubdomainName}.${FullyQualifiedDomainName}'
+      Type: A
+      HostedZoneName: !Sub '${FullyQualifiedDomainName}.'
+      ResourceRecords:
+        - !GetAtt 
+          - FoundryServer
+          - PublicIp
+      TTL: 60
+  Route53RSWeb:
+    Type: 'AWS::Route53::RecordSet'
+    Condition: Route53WebServer
+    Properties:
+      Name: !Ref FullyQualifiedDomainName
+      Type: A
+      HostedZoneName: !Sub '${FullyQualifiedDomainName}.'
+      ResourceRecords:
+        - !GetAtt 
+          - FoundryServer
+          - PublicIp
+      TTL: 60
+  Route53RSWebWWW:
+    Type: 'AWS::Route53::RecordSet'
+    Condition: Route53WebServer
+    Properties:
+      Name: !Sub 'www.${FullyQualifiedDomainName}'
+      Type: CNAME
+      HostedZoneName: !Sub '${FullyQualifiedDomainName}.'
+      ResourceRecords:
+        - !Ref FullyQualifiedDomainName
+      TTL: 60
+  FoundryBucket:
+    Condition: NoExistingS3
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - POST
+              - HEAD
+            MaxAge: 3000
+            AllowedOrigins:
+              - '*'
+      AccessControl: PublicRead
+      BucketName: !Ref S3BucketName
+  FoundryBucketPolicy:
+    Condition: NoExistingS3
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref FoundryBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${S3BucketName}/*'
+            Condition:
+              IpAddress:
+                'aws:SourceIp':
+                  - 172.31.16.0/20
+                  - 172.31.0.0/20
+                  - 172.31.32.0/20
+  UserKey:
+    Type: 'AWS::IAM::AccessKey'
+    Properties:
+      Status: Active
+      UserName: !Ref FoundryUser
+  FoundryUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      Policies:
+        - PolicyName: S3Foundry
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: VisualEditor0
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                  - 's3:DeleteObject'
+                  - 's3:PutObjectAcl'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}'
+              - Sid: VisualEditor1
+                Effect: Allow
+                Action: 's3:ListAllMyBuckets'
+                Resource: '*'
+  FoundryServer:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      KeyName: !Ref InstanceKey
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !Ref FoundryServerSG
+      Tags:
+        - Key: Name
+          Value: FoundryServer
+      UserData: !Base64 
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/sh
+            - >
+              AWS_AVAIL_ZONE=$(curl
+              http://169.254.169.254/latest/meta-data/placement/availability-zone)
+            - |
+              AWS_REGION=${AWS_AVAIL_ZONE::-1}
+            - >
+              AWS_INSTANCE_ID=$(curl
+              http://169.254.169.254/latest/meta-data/instance-id)
+            - >
+              ROOT_VOLUME_IDS=$(aws ec2 describe-instances --region $AWS_REGION
+              --instance-id $AWS_INSTANCE_ID --output text --query
+              Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId)
+            - >
+              aws ec2 create-tags --resources $ROOT_VOLUME_IDS --region
+              $AWS_REGION --tags Key=Snapshot,Value=true
+            - >
+              curl --silent --location https://rpm.nodesource.com/setup_12.x |
+              sudo bash -
+            - |
+              sudo yum install -y git
+            - |
+              cd /
+            - |
+              git clone https://github.com/FluxAugur/aws-foundry-ssl.git
+            - |
+              mkdir /foundry /foundrydata /aws-foundry-ssl/variables /foundryssl
+            - >
+              echo '#!/bin/bash' >>
+              /aws-foundry-ssl/variables/foundry_variables.sh
+            - echo 'foundry_download_link=
+            - !Ref FoundryDownloadLink
+            - |
+              ' >> /aws-foundry-ssl/variables/foundry_variables.sh
+            - echo 'access_key_id=
+            - !Ref UserKey
+            - |
+              ' >> /aws-foundry-ssl/variables/foundry_variables.sh
+            - echo 'secret_access_key=
+            - !GetAtt 
+              - UserKey
+              - SecretAccessKey
+            - |
+              ' >> /aws-foundry-ssl/variables/foundry_variables.sh
+            - echo 'region=
+            - !Ref 'AWS::Region'
+            - |
+              ' >> /aws-foundry-ssl/variables/foundry_variables.sh
+            - |
+              echo '#!/bin/bash' >> /foundryssl/variables.sh
+            - echo 'domain_registrar=
+            - !Ref DomainRegistrar
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'api_key=
+            - !Ref APIKey
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'api_secret=
+            - !Ref APISecret
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'fqdn=
+            - !Ref FullyQualifiedDomainName
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'subdomain=
+            - !Ref SubdomainName
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'email=
+            - !Ref Email
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'webserver_bool=
+            - !Ref WebServerBool
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'webserver_user=
+            - !Ref GoogleAPIKey
+            - |
+              ' >> /foundryssl/variables.sh
+            - echo 'webserver_pass=
+            - !Ref GoogleAPISecret
+            - |
+              ' >> /foundryssl/variables.sh
+            - |
+              sudo chown root:root /foundryssl/variables.sh
+            - |
+              sudo chmod 700 /foundryssl/variables.sh
+            - |
+              sudo chmod -R a+x /aws-foundry-ssl
+            - |
+              /aws-foundry-ssl/scripts/global/install.sh
+  InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy'
+      Policies:
+        - PolicyName: EC2Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: EC2Read
+                Effect: Allow
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:DescribeInstances'
+                Resource: '*'
+  InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+  InstanceEIP:
+    Condition: CreateEIP
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      InstanceId: !Ref FoundryServer
+  SnapshotPolicy:
+    Condition: CreateSnapshots
+    Type: 'AWS::DLM::LifecyclePolicy'
+    Properties:
+      State: ENABLED
+      Description: Foundry Server snapshot policy
+      ExecutionRoleArn: !GetAtt 
+        - InstanceRole
+        - Arn
+      PolicyDetails:
+        PolicyType: EBS_SNAPSHOT_MANAGEMENT
+        ResourceTypes:
+          - VOLUME
+        TargetTags:
+          - Key: Snapshot
+            Value: 'true'
+        Schedules:
+          - !If 
+            - DailyCheck
+            - Name: Snapshots
+              CreateRule:
+                CronExpression: cron(0 12 * * ? *)
+              RetainRule:
+                Count: 5
+              CopyTags: true
+            - Name: Snapshots
+              CreateRule:
+                CronExpression: cron(0 12 ? * 2 *)
+              RetainRule:
+                Count: 5
+              CopyTags: true
+
